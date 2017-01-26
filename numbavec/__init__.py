@@ -1,82 +1,152 @@
 import numpy as np
 import numba
 
+_EXPANSION_CONSTANT_ = 1.7
 
 def Vector(numba_type):
-    """Generate an instance of a dynamically sized vector numba jitclass."""
-
+    """Generates an instance of a dynamically resized vector numba jitclass."""
+    
+    if numba_type in Vector._saved_type:
+        return Vector._saved_type[numba_type]
+    
     class _Vector:
-        """Dynamically sized arrays in nopython=True mode."""
-
+        """Dynamically sized arrays in nopython mode."""
+        
         def __init__(self, n):
-            """Initialize with space to hold 1 value."""
+            """Initialize with space enough to hold n garbage values."""
             self.n = n
             self.m = n
             self.full_arr = np.empty(self.n, dtype=numba_type)
-
-
+        
         @property
         def size(self):
-            """The number of valid valued."""
+            """The number of valid values."""
             return self.n
-
+        
         @property
         def arr(self):
             """Return the subarray."""
             return self.full_arr[:self.n]
-
-
+        
+        @property
+        def last(self):
+            """The last element in the array."""
+            if self.n:
+                return self.full_arr[self.n-1]
+            else:
+                raise IndexError(
+                    "This numbavec has no elements: cannot return 'last'.")
+        
+        @property
+        def first(self):
+            """The first element in the array."""
+            if self.n:
+                return self.full_arr[0]
+            else:
+                raise IndexError(
+                    "This numbavec has no elements: cannot return 'first'.")
+        
+        def clear(self):
+            """Remove all elements from the array."""
+            self.n = 0
+            return self
+        
+        def extend(self, other):
+            """Add the contents of a numpy array to the end of this Vector.
+            
+            Arguments
+            ---------
+            other : 1d array
+                The values to add to the end.
+            """
+            n_required = self.size + other.size
+            self.reserve(n_required)
+            self.full_arr[self.size:n_required] = other
+            self.n = n_required
+            return self
+        
         def append(self, val):
             """Add a value to the end of the Vector, expanding it if necessary."""
             if self.n == self.m:
                 self._expand()
             self.full_arr[self.n] = val
             self.n += 1
-
-
+            return self
+        
         def reserve(self, n):
-            """Reserve a number of elements.
-            This funciton ensures no resize overhead when appending values 0 to n-1."""
+            """Reserve a n elements in the underlying array.
+            
+            Arguments
+            ---------
+            n : int
+                The number of elements to reserve
+            
+            Reserving n elements ensures no resize overhead when appending up
+            to size n-1 .
+            """
             if n > self.m:  # Only change size if we are
-                temp = np.zeros(int(n), dtype=numba_type)
+                temp = np.empty(int(n), dtype=numba_type)
                 temp[:self.n] = self.arr
                 self.full_arr = temp
                 self.m = n
-
-
+            return self
+        
         def consolidate(self):
+            """Remove unused memory from the array."""
             if self.n < self.m:
-                self.full_arr = self.arr
+                self.full_arr = self.arr.copy()
                 self.m = self.n
-
-
+            return self
+        
         def __array__(self):
             """Array inteface for Numpy compatibility."""
             return self.full_arr[:self.n]
-
-
-        def extend(self):
-            pass
-
-
+        
         def _expand(self):
             """Internal function that handles the resizing of the array."""
-            self.m = int(self.m * 2) + 1
+            self.m = int(self.m * _EXPANSION_CONSTANT_) + 1
             temp = np.empty(self.m, dtype=numba_type)
             temp[:self.n] = self.full_arr[:self.n]
             self.full_arr = temp
-
+        
+        def set_to(self, arr):
+            """Make this vector point to another array of values.
+            
+            Arguments
+            ---------
+            arr : 1d array
+                Array to set this vector to. After this operation, self.arr
+                will be equal to arr. The dtype of this array must be the 
+                same dtype as used to create the vector. Cannot be a readonly
+                vector.
+            """
+            self.full_arr = arr
+            self.n = self.m = arr.size
+        
+        def set_to_copy(self, arr):
+            """Set this vector to an array, copying the underlying input.
+            
+            Arguments
+            ---------
+            arr : 1d array
+                Array to set this vector to. After this operation, self.arr
+                will be equal to arr. The dtype of this array must be the 
+                same dtype as used to create the vector.
+            """
+            self.full_arr = arr.copy()
+            self.n = self.m = arr.size
+    
+    
     if numba_type not in Vector._saved_type:
-        spec = [("n", numba.int32),
-                ("m", numba.int32),
+        spec = [("n", numba.uint64),
+                ("m", numba.uint64),
                 ("full_arr", numba_type[:])]
         Vector._saved_type[numba_type] = numba.jitclass(spec)(_Vector)
-
+    
     return Vector._saved_type[numba_type]
 
 
 Vector._saved_type = dict()
-
 
 VectorUint8 = Vector(numba.uint8)
 VectorUint16 = Vector(numba.uint16)
