@@ -93,3 +93,9 @@ VectorFloat64 = Vector(numba.float64)
 
 VectorComplex64 = Vector(numba.complex64)
 VectorComplex128 = Vector(numba.complex128)
+
+__all_types = tuple(v for k, v in Vector._saved_type.items())
+
+def isinstance(obj):
+    return isinstance(obj, __all_types)
+
